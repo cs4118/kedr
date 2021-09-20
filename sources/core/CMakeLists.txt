@@ -60,6 +60,7 @@ kbuild_include_directories(
 	"${CMAKE_CURRENT_SOURCE_DIR}"
 	)
 
+if(NOT Kbuild_ARCH STREQUAL "arm64")
 kbuild_add_module(${kmodule_name}
 	"kedr_module.c"
     "kedr_base.c"
@@ -77,13 +78,32 @@ kbuild_add_module(${kmodule_name}
     "${arch_dir}/lib/insn.c"
     "${arch_dir}/lib/inat-tables.h"
     )
+else(NOT Kbuild_ARCH STREQUAL "arm64")
+kbuild_add_module(${kmodule_name}
+	"kedr_module.c"
+    "kedr_base.c"
+    "kedr_instrumentor.c"
+    "kedr_functions_support.c"
+    "kedr_target_detector.c"
 
+	"kedr_internal.h"
+	"kedr_base_internal.h"
+	"kedr_instrumentor_internal.h"
+	"kedr_functions_support_internal.h"
+	"kedr_target_detector_internal.h"
+
+    "${arch_dir}/lib/insn.c"
+    )
+endif(NOT Kbuild_ARCH STREQUAL "arm64")
+
+if(NOT Kbuild_ARCH STREQUAL "arm64")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/${arch_dir}/lib/inat-tables.h"
 			COMMAND LC_ALL=C awk -f "${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}/tools/gen-insn-attr-x86.awk"
 				"${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}/lib/x86-opcode-map.txt" >
 				"${CMAKE_CURRENT_BINARY_DIR}/${arch_dir}/lib/inat-tables.h"
 			DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/${arch_dir}/lib/x86-opcode-map.txt"
 			)
+endif(NOT Kbuild_ARCH STREQUAL "arm64")
 
 kedr_install_kmodule(${kmodule_name})
 kedr_install_symvers(${kmodule_name})

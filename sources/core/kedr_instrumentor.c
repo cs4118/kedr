@@ -30,7 +30,11 @@
 #include <linux/hash.h> /* hash_ptr definition */
 
 #include <kedr/core/kedr.h>
+#ifndef CONFIG_ARM64
 #include <kedr/asm/insn.h>       /* instruction decoder machinery */
+#else
+#include <asm/insn.h>       /* instruction decoder machinery */
+#endif
 
 #include <asm/cacheflush.h> 	/* set_memory_ro, set_memory_rw */
 #include <linux/pfn.h> 		/* PFN_* macros */
@@ -213,7 +217,11 @@ repl_hash_table_get_repl(struct repl_hash_table* table, void* orig)
  * instruction and the address of the destination function.
  * 
  * */
-#ifdef CONFIG_X86_64
+#if defined(CONFIG_ARM64)
+#  define CALL_ADDR_FROM_OFFSET(insn_addr, offset) \
+	(void*)((unsigned long)(insn_addr) + (s32)(offset))
+
+#elif defined(CONFIG_X86_64)
 #  define CALL_ADDR_FROM_OFFSET(insn_addr, insn_len, offset) \
 	(void*)((s64)(insn_addr) + (s64)(insn_len) + (s64)(s32)(offset))
 
@@ -222,8 +230,13 @@ repl_hash_table_get_repl(struct repl_hash_table* table, void* orig)
 	(void*)((u32)(insn_addr) + (u32)(insn_len) + (u32)(offset))
 #endif
 
+#ifndef CONFIG_ARM64
 #define CALL_OFFSET_FROM_ADDR(insn_addr, insn_len, dest_addr) \
 	(u32)(dest_addr - (insn_addr + (u32)insn_len))
+#else
+#define CALL_OFFSET_FROM_ADDR(insn_addr, dest_addr) \
+	(u32)((unsigned long)dest_addr - (unsigned long)insn_addr)
+#endif
 /* ================================================================ */
 
 /* ================================================================ */
@@ -235,6 +248,7 @@ repl_hash_table_get_repl(struct repl_hash_table* table, void* orig)
  * The function returns the length of the instruction in bytes. 
  * 0 is returned in case of failure.
  */
+#ifndef CONFIG_ARM64
 static unsigned int
 do_process_insn(struct insn* c_insn, void* kaddr, void* end_kaddr,
 	struct repl_hash_table* repl_table)
@@ -330,6 +344,58 @@ do_process_insn(struct insn* c_insn, void* kaddr, void* end_kaddr,
 	
 	return c_insn->length;
 }
+#else
+static unsigned int
+do_process_insn(__le32* kaddr, __le32* end_kaddr,
+	struct repl_hash_table* repl_table)
+{
+	u32 insn = le32_to_cpu(*kaddr);
+
+	/* 32-bit offset argument in the instruction */
+	s32 offset; 
+	
+	/* address of the function being called */
+	void* addr = NULL;
+	void* repl_addr; 
+
+	if (kaddr + 1 > end_kaddr)
+	{
+	/* Note: it is OK to stop at 'end_kaddr' but no further */
+		KEDR_MSG(COMPONENT_STRING
+	"instruction decoder stopped past the end of the section.\n");
+		printk(KERN_ALERT COMPONENT_STRING 
+	"kaddr=%lx, end_kaddr=%lx, length=%d\n",
+			(unsigned long)kaddr,
+			(unsigned long)end_kaddr,
+			(int)AARCH64_INSN_SIZE
+		);
+		WARN_ON(1);
+	}
+		
+	if (!aarch64_insn_is_branch_imm(insn))
+	{
+		/* Not branch instruction, nothing to do. */
+		return AARCH64_INSN_SIZE;
+	}
+	
+	offset = aarch64_get_branch_offset(insn);
+	addr = CALL_ADDR_FROM_OFFSET(kaddr, offset);
+	
+	/* Check if one of the functions of interest is called */
+	repl_addr = repl_hash_table_get_repl(repl_table, addr);
+	if (repl_addr != NULL)
+	{
+		/* Change the address of the function to be called */
+		offset = CALL_OFFSET_FROM_ADDR(
+			kaddr, 
+			repl_addr
+		);
+		*kaddr = cpu_to_le32(aarch64_set_branch_offset(insn, offset));
+	}
+	
+	return AARCH64_INSN_SIZE;
+}
+#endif
 
 /* Process the instructions in [kbeg, kend) area.
  * Each 'call' instruction calling one of the target functions will be 
@@ -343,7 +409,9 @@ static void
 do_process_area(void* kbeg, void* kend, 
 	struct repl_hash_table* repl_table)
 {
+#ifndef CONFIG_ARM64
 	struct insn c_insn; /* current instruction */
+#endif
 	void* pos = NULL;
 	
 	BUG_ON(kbeg == NULL);
@@ -371,8 +439,13 @@ do_process_area(void* kbeg, void* kend,
  * [NB] The above check automatically handles 'pos == kend' case.
  */
 	   
+#ifndef CONFIG_ARM64
 		len = do_process_insn(&c_insn, pos, kend,
 			repl_table);
+#else
+		len = do_process_insn(pos, kend,
+			repl_table);
+#endif
 		if (len == 0)   
 		{
 			KEDR_MSG(COMPONENT_STRING
@@ -540,6 +613,7 @@ set_module_init_text_ro(struct module* mod)
 static bool
 is_module_section_rw(unsigned long begin, unsigned long end)
 {
+#ifndef CONFIG_ARM64
 	unsigned long tmp = begin & PAGE_MASK;
 	pte_t* pte = NULL;
 	unsigned int level = 0;
@@ -556,6 +630,16 @@ is_module_section_rw(unsigned long begin, unsigned long end)
 	}
 
 	return true;
+#else
+/* This is a HACK, made necessary by the fact that lookup_address isn't exported
+ * for arm64 (and neither is the init_mm symbol necessary to implement it).
+ * There's probably a way to actually implement this, but I don't have time to
+ * figure it out.
+ *
+ * I'm guessing it's safest to just assume module sections aren't writable.
+ */
+	return false;
+#endif
 }
 
 static bool

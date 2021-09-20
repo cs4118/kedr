@@ -116,10 +116,10 @@ endif(NOT LSMOD OR NOT RMMOD OR NOT INSMOD OR NOT MODPROBE)
 if(NOT USER_PART_ONLY)
     find_package(Kbuild 3.10.0)
 
-    if(NOT Kbuild_ARCH STREQUAL "x86")
-	message("Only x86 architecture is supported (this includes x86_64 machines also).")
+    if(NOT Kbuild_ARCH STREQUAL "x86" AND NOT Kbuild_ARCH STREQUAL "arm64")
+	message("Only x86/arm64 architectures are supported (this includes x86_64 machines also).")
 	message(FATAL_ERROR "Unsupported architecture: ${Kbuild_ARCH}")
-    endif(NOT Kbuild_ARCH STREQUAL "x86")
+    endif(NOT Kbuild_ARCH STREQUAL "x86" AND NOT Kbuild_ARCH STREQUAL "arm64")
 endif(NOT USER_PART_ONLY)
 # TODO: Arhitecture may be checked for USER_PART_ONLY build.
 # This would prevent its building for machine, which not support it
