@@ -682,3 +682,5 @@ endif(KERNEL_PART_ONLY)
 
 message (STATUS "Configured ${KEDR_PACKAGE_NAME} version ${KEDR_VERSION}")
 #######################################################################
+
+add_subdirectory(${CMAKE_SOURCE_DIR}/cmake/postinstall)
