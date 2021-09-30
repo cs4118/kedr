@@ -418,7 +418,11 @@ do_process_area(void* kbeg, void* kend,
 	BUG_ON(kend == NULL);
 	BUG_ON(kend < kbeg);
 		
+#ifndef CONFIG_ARM64
 	for (pos = kbeg; pos + 4 < kend; )
+#else
+	for (pos = kbeg; pos + (AARCH64_INSN_SIZE-1) < kend; )
+#endif
 	{
 		unsigned int len;
 		unsigned int k;
